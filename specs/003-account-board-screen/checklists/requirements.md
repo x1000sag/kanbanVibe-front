@@ -32,4 +32,5 @@
 ## Notes
 
 - Iteration 1: all items pass. Exact colors, type, and spacing in «Состав экрана» are the brand look a person sees, not a language, framework, or call shape.
+- Review 2026-11-25: тёмная подложка макета не входит в экран, тёплая доска на весь экран; ссылку Read more не воспроизводить. Пункты списка по-прежнему пройдены.
 - Specification is ready for `/speckit.clarify` or `/speckit.plan`. This command stops for review-spec and does not run them.
