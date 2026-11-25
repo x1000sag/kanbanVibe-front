@@ -65,19 +65,43 @@ function remoteTag(remoteUrl, tag) {
   return { tagSha, commitSha }
 }
 
+function normalizeDeployKey(raw) {
+  let text = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+  if (
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("'") && text.endsWith("'"))
+  ) {
+    text = text.slice(1, -1).trim()
+  }
+  if (!text.includes('\n') && text.includes('\\n')) {
+    text = text.replace(/\\n/g, '\n').trim()
+  }
+  if (!text.includes('-----BEGIN ') && !/[\s]/.test(text)) {
+    const decoded = Buffer.from(text, 'base64').toString('utf8')
+    if (decoded.includes('-----BEGIN ')) text = decoded.trim()
+  }
+  const begin = text.indexOf('-----BEGIN ')
+  if (begin === -1) {
+    const looksPublic = /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-|sk-ssh-)/.test(text)
+    const hint = looksPublic ? ' Похоже, в секрете публичный ключ, а нужен приватный.' : ''
+    throw new Error(`BACKEND_SSH_DEPLOY_KEY не похож на приватный ключ OpenSSH.${hint}`)
+  }
+  const end = text.indexOf('-----END ', begin)
+  if (end === -1) {
+    throw new Error('BACKEND_SSH_DEPLOY_KEY не содержит строки -----END')
+  }
+  const endLine = text.indexOf('\n', end)
+  text = text.slice(begin, endLine === -1 ? undefined : endLine + 1)
+  if (!text.endsWith('\n')) text += '\n'
+  return text
+}
+
 function useDeployKey(fallbackUrl) {
   const raw = process.env.BACKEND_SSH_DEPLOY_KEY
   delete gitEnv.BACKEND_SSH_DEPLOY_KEY
   if (typeof raw !== 'string' || raw.trim() === '') return fallbackUrl
 
-  let material = raw.replace(/\r\n/g, '\n')
-  if (!material.includes('\n') && material.includes('\\n')) {
-    material = material.replace(/\\n/g, '\n')
-  }
-  if (!material.endsWith('\n')) material += '\n'
-  if (!material.trimStart().startsWith('-----BEGIN ')) {
-    throw new Error('BACKEND_SSH_DEPLOY_KEY не похож на приватный ключ OpenSSH')
-  }
+  const material = normalizeDeployKey(raw)
 
   const dir = mkdtempSync(path.join(tmpdir(), 'kanban-backend-key-'))
   const keyPath = path.join(dir, 'id')
