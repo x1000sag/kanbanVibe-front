@@ -21,6 +21,8 @@ npm run dev
 
 ## Сборка
 
+Сборка зависит от [kanbanVibe-Back](https://github.com/x1000sag/kanbanVibe-Back) на git-теге `v0.0.0` (`package.json`, поле `kanbanVibeBackend`). `npm ci` и `npm run build` запускают `scripts/fetch-backend-tag.mjs`: скрипт забирает с GitHub именно этот тег в `vendor/kanbanVibe-Back`. Каталог `vendor/` не коммитится. Если тег недоступен, установка и сборка завершаются с ошибкой.
+
 ```bash
 npm ci
 npm run build

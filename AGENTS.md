@@ -65,6 +65,7 @@ MCP — вспомогательный источник. Локальные фа
 
 - Frontend: Vue 3, Vite, TypeScript, Pinia. Приложение в корне репозитория kanbanVibe-front, не в каталоге `frontend/`.
 - Backend живёт в репозитории kanbanVibe-Back (веб-API .NET). Не создавайте backend в этом репозитории.
+- Сборка закрепляет kanbanVibe-Back на git-теге `v0.0.0`: `npm ci` и `npm run build` забирают этот тег (`package.json` → `kanbanVibeBackend`, `scripts/fetch-backend-tag.mjs`).
 - Базовый URL API: переменная `VITE_API_BASE_URL` (пример — `.env.example`).
 - Установка: `npm ci`.
 - Сборка: `npm run build`.

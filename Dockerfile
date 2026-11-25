@@ -1,6 +1,8 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+RUN apk add --no-cache git
 COPY package.json package-lock.json ./
+COPY scripts/fetch-backend-tag.mjs scripts/fetch-backend-tag.mjs
 RUN npm ci
 COPY . .
 ARG VITE_API_BASE_URL=http://host.docker.internal:5050
