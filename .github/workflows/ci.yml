@@ -18,7 +18,11 @@ jobs:
           cache: npm
 
       - name: Install
+        env:
+          BACKEND_SSH_DEPLOY_KEY: ${{ secrets.BACKEND_SSH_DEPLOY_KEY }}
         run: npm ci
 
       - name: Build
+        env:
+          BACKEND_SSH_DEPLOY_KEY: ${{ secrets.BACKEND_SSH_DEPLOY_KEY }}
         run: npm run build

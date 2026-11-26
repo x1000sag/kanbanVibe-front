@@ -1,4 +1,5 @@
-import { createInMemoryAccountBoard, type InMemoryAccountBoard, type MockResult } from './mockAccountBoard'
+import { createHttpAccountBoard, type AccountTransport, type TransportResult } from './httpAccountBoard'
+import { createInMemoryAccountBoard } from './mockAccountBoard'
 import type {
   Card,
   CardCreate,
@@ -35,16 +36,23 @@ export interface AccountBoardPort {
   openAccount(input: { nick: string; password: string; displayName: string }): Promise<OpenAccountResult>
 }
 
-function asFailure(result: MockResult<unknown>): PortFailure {
+function asFailure(result: TransportResult<unknown>): PortFailure {
   if (result.ok) return { ok: false, kind: 'service' }
   if ('network' in result) return { ok: false, kind: 'network' }
+  if ('service' in result) return { ok: false, kind: 'service' }
+  if ('unrecognized' in result) return { ok: false, kind: 'client' }
   if (result.error.code === 'no_active_access') return { ok: false, kind: 'access', code: result.error.code }
   if (result.error.code === 'store_unavailable') return { ok: false, kind: 'store', code: result.error.code }
   if (result.status >= 500) return { ok: false, kind: 'service', code: result.error.code }
   return { ok: false, kind: 'client', code: result.error.code }
 }
 
-export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMemoryAccountBoard()): AccountBoardPort {
+function selectTransport(): AccountTransport {
+  if (import.meta.env?.VITE_ACCOUNT_BOARD_STANDIN === 'memory') return createInMemoryAccountBoard()
+  return createHttpAccountBoard()
+}
+
+export function createAccountBoardPort(transport: AccountTransport = selectTransport()): AccountBoardPort {
   let token: string | null = null
   let nick: string | null = null
   let profileReady = false
@@ -62,13 +70,13 @@ export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMe
 
   return {
     async createAccount(body) {
-      const result = await memory.createAccount({ nick: body.nick, password: body.password })
+      const result = await transport.createAccount({ nick: body.nick, password: body.password })
       if (!result.ok) return asFailure(result)
       return { ok: true, data: result.data }
     },
 
     async signIn(body) {
-      const result = await memory.signIn({ nick: body.nick, password: body.password })
+      const result = await transport.signIn({ nick: body.nick, password: body.password })
       if (!result.ok) return asFailure(result)
       token = result.data.accessToken
       nick = body.nick.trim()
@@ -77,14 +85,14 @@ export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMe
     },
 
     async endSession() {
-      if (token) await memory.endSession(token)
+      if (token) await transport.endSession(token)
       drop()
       return { ok: true, data: null }
     },
 
     async getProfile() {
       if (!token || !nick) return rejectAccess()
-      const result = await memory.getProfile(token, nick)
+      const result = await transport.getProfile(token, nick)
       if (!result.ok) {
         const failure = asFailure(result)
         if (failure.kind === 'access') drop()
@@ -96,7 +104,7 @@ export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMe
 
     async changeDisplayName(body) {
       if (!token || !nick) return rejectAccess()
-      const result = await memory.changeDisplayName(token, nick, { displayName: body.displayName })
+      const result = await transport.changeDisplayName(token, nick, { displayName: body.displayName })
       if (!result.ok) {
         const failure = asFailure(result)
         if (failure.kind === 'access') drop()
@@ -107,7 +115,7 @@ export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMe
 
     async changePassword(body) {
       if (!token || !nick) return rejectAccess()
-      const result = await memory.changePassword(token, nick, {
+      const result = await transport.changePassword(token, nick, {
         currentPassword: body.currentPassword,
         newPassword: body.newPassword,
       })
@@ -121,7 +129,7 @@ export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMe
 
     async createCard(body) {
       if (!token || !nick || !profileReady) return { ok: false, kind: 'client', code: 'request_invalid' }
-      const result = await memory.createCard(token, nick, {
+      const result = await transport.createCard(token, nick, {
         columnName: body.columnName,
         title: body.title,
         description: body.description ?? null,
@@ -138,7 +146,7 @@ export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMe
 
     async deleteCard(cardId) {
       if (!token || !nick || !profileReady) return { ok: false, kind: 'client', code: 'request_invalid' }
-      const result = await memory.deleteCard(token, nick, cardId)
+      const result = await transport.deleteCard(token, nick, cardId)
       if (!result.ok) {
         const failure = asFailure(result)
         if (failure.kind === 'access') drop()
@@ -148,15 +156,15 @@ export function createAccountBoardPort(memory: InMemoryAccountBoard = createInMe
     },
 
     async openAccount(input) {
-      const created = await memory.createAccount({ nick: input.nick, password: input.password })
+      const created = await transport.createAccount({ nick: input.nick, password: input.password })
       if (!created.ok) return { ok: false, failure: asFailure(created), signedIn: false, nick: null }
-      const signed = await memory.signIn({ nick: created.data.nick, password: input.password })
+      const signed = await transport.signIn({ nick: created.data.nick, password: input.password })
       if (!signed.ok) return { ok: false, failure: asFailure(signed), signedIn: false, nick: null }
       token = signed.data.accessToken
       nick = created.data.nick
       profileReady = false
-      const named = await memory.changeDisplayName(token, nick, { displayName: input.displayName })
-      const profile = await memory.getProfile(token, nick)
+      const named = await transport.changeDisplayName(token, nick, { displayName: input.displayName })
+      const profile = await transport.getProfile(token, nick)
       if (!profile.ok) {
         const failure = asFailure(profile)
         if (failure.kind === 'access') {
