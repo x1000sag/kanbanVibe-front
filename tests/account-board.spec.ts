@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { createAccountBoardPort } from '../src/services/accountBoardPort'
+import { createHttpAccountBoard } from '../src/services/httpAccountBoard'
 import { createInMemoryAccountBoard, type MockResult } from '../src/services/mockAccountBoard'
 import { phrase, phraseForCode } from '../src/services/phrases'
 
@@ -383,6 +384,197 @@ test.describe('port contract', () => {
   })
 })
 
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+test.describe('http account adapter', () => {
+  const base = 'http://localhost:5050'
+
+  test('calls the published /v1 account routes and keeps the token inside the port', async () => {
+    const calls: { url: string; method: string; body?: string; authorization: string | null }[] = []
+    const previous = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      const headers = new Headers(init?.headers)
+      const body = typeof init?.body === 'string' ? init.body : undefined
+      calls.push({ url, method, body, authorization: headers.get('authorization') })
+      if (method === 'POST' && url === `${base}/v1/accounts`) {
+        const sent = JSON.parse(body ?? '{}') as { nick?: string }
+        if (sent.nick === 'taken') return jsonResponse(409, { code: 'nick_taken' })
+        return jsonResponse(201, { nick: sent.nick, displayName: sent.nick })
+      }
+      if (method === 'POST' && url === `${base}/v1/sessions`) {
+        return jsonResponse(200, { accessToken: 'opaque-token', expiresAt: '2026-11-26T12:00:00Z' })
+      }
+      if (method === 'PUT' && url === `${base}/v1/accounts/marina/display-name`) {
+        return jsonResponse(200, { nick: 'marina', displayName: 'Марина' })
+      }
+      if (method === 'GET' && url === `${base}/v1/accounts/marina`) {
+        return jsonResponse(200, {
+          nick: 'marina',
+          displayName: 'Марина',
+          board: {
+            columns: [
+              { name: 'ToDo', cards: [] },
+              { name: 'InProgress', cards: [] },
+              { name: 'Done', cards: [] },
+            ],
+          },
+        })
+      }
+      if (method === 'POST' && url === `${base}/v1/accounts/marina/cards`) {
+        return jsonResponse(201, {
+          id: '11111111-1111-1111-1111-111111111111',
+          title: 'Design homepage mockup',
+          description: null,
+          tags: ['UI Design'],
+          deadline: '2026-07-08',
+          createdAt: '2026-07-08T00:00:00Z',
+        })
+      }
+      if (method === 'DELETE' && url === `${base}/v1/accounts/marina/cards/11111111-1111-1111-1111-111111111111`) {
+        return new Response(null, { status: 204 })
+      }
+      if (method === 'PUT' && url === `${base}/v1/accounts/marina/password`) {
+        return new Response(null, { status: 204 })
+      }
+      if (method === 'DELETE' && url === `${base}/v1/sessions/current`) {
+        return new Response(null, { status: 204 })
+      }
+      return jsonResponse(500, { code: 'store_unavailable' })
+    }) as typeof fetch
+
+    try {
+      const port = createAccountBoardPort(createHttpAccountBoard())
+      const opened = await port.openAccount({ nick: 'marina', password: 'secret', displayName: 'Марина' })
+      expect(opened.ok).toBe(true)
+      if (!opened.ok) return
+      expect(opened.profile.displayName).toBe('Марина')
+      expect(JSON.stringify(opened)).not.toContain('opaque-token')
+      expect(JSON.stringify(opened)).not.toContain('secret')
+      expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
+        `POST ${base}/v1/accounts`,
+        `POST ${base}/v1/sessions`,
+        `PUT ${base}/v1/accounts/marina/display-name`,
+        `GET ${base}/v1/accounts/marina`,
+      ])
+      expect(JSON.parse(calls[0].body ?? '{}')).toEqual({ nick: 'marina', password: 'secret' })
+      expect(calls[0].authorization).toBeNull()
+      expect(calls[3].authorization).toBe('Bearer opaque-token')
+
+      const card = await port.createCard({ columnName: 'InProgress', title: 'Design homepage mockup', tags: ['UI Design'] })
+      expect(card.ok).toBe(true)
+      expect(JSON.parse(calls[4].body ?? '{}')).toEqual({
+        columnName: 'InProgress',
+        title: 'Design homepage mockup',
+        description: null,
+        tags: ['UI Design'],
+        deadline: null,
+      })
+
+      const removed = await port.deleteCard('11111111-1111-1111-1111-111111111111')
+      expect(removed.ok).toBe(true)
+      expect(calls[5].url).toBe(`${base}/v1/accounts/marina/cards/11111111-1111-1111-1111-111111111111`)
+
+      const password = await port.changePassword({ currentPassword: 'secret', newPassword: 'next' })
+      expect(password.ok).toBe(true)
+      expect(JSON.parse(calls[6].body ?? '{}')).toEqual({ currentPassword: 'secret', newPassword: 'next' })
+
+      const ended = await port.endSession()
+      expect(ended.ok).toBe(true)
+      expect(calls[7]).toMatchObject({ method: 'DELETE', url: `${base}/v1/sessions/current` })
+
+      calls.length = 0
+      const taken = await port.openAccount({ nick: 'taken', password: 'secret', displayName: 'Other' })
+      expect(taken.ok).toBe(false)
+      if (taken.ok) return
+      expect(taken.failure).toEqual({ ok: false, kind: 'client', code: 'nick_taken' })
+      expect(calls).toHaveLength(1)
+    } finally {
+      globalThis.fetch = previous
+    }
+  })
+
+  test('maps published error codes onto the existing failure kinds', async () => {
+    const routes = new Map<string, () => Response | 'network'>()
+    const previous = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const route = routes.get(url)
+      const answer = route ? route() : jsonResponse(404, { code: 'object_missing' })
+      if (answer === 'network') throw new TypeError('offline')
+      return answer
+    }) as typeof fetch
+    const session = () => jsonResponse(200, { accessToken: 'opaque-token', expiresAt: '2026-11-26T12:00:00Z' })
+    const emptyBoard = () =>
+      jsonResponse(200, {
+        nick: 'marina',
+        displayName: 'marina',
+        board: {
+          columns: [
+            { name: 'ToDo', cards: [] },
+            { name: 'InProgress', cards: [] },
+            { name: 'Done', cards: [] },
+          ],
+        },
+      })
+
+    try {
+      const port = createAccountBoardPort(createHttpAccountBoard())
+      routes.set(`${base}/v1/sessions`, () => jsonResponse(401, { code: 'sign_in_failed' }))
+      const failed = await port.signIn({ nick: 'marina', password: 'nope' })
+      expect(failed).toEqual({ ok: false, kind: 'client', code: 'sign_in_failed' })
+      expect(phraseForCode('sign_in_failed')).toBe('Не удалось войти')
+
+      routes.set(`${base}/v1/sessions`, session)
+      routes.set(`${base}/v1/accounts/marina`, () => jsonResponse(503, { code: 'store_unavailable' }))
+      const signed = await port.signIn({ nick: 'marina', password: 'secret' })
+      expect(signed.ok).toBe(true)
+      const down = await port.getProfile()
+      expect(down).toEqual({ ok: false, kind: 'store', code: 'store_unavailable' })
+      expect(phraseForCode('store_unavailable')).toBe('Данные сейчас недоступны')
+
+      routes.set(`${base}/v1/accounts/marina`, () => jsonResponse(401, { code: 'no_active_access' }))
+      const expired = await port.getProfile()
+      expect(expired).toEqual({ ok: false, kind: 'access', code: 'no_active_access' })
+      expect(phraseForCode('no_active_access')).toBe('Нужно войти снова')
+
+      const again = await port.signIn({ nick: 'marina', password: 'secret' })
+      expect(again.ok).toBe(true)
+      routes.set(`${base}/v1/accounts/marina`, () => new Response('nope', { status: 502 }))
+      const broken = await port.getProfile()
+      expect(broken).toEqual({ ok: false, kind: 'service' })
+      expect(phrase.serviceFailed).toBe('Не получилось выполнить действие. Повторите позже')
+
+      routes.set(`${base}/v1/accounts/a%20b`, () => 'network')
+      const offlinePort = createAccountBoardPort(createHttpAccountBoard())
+      const encoded = await offlinePort.signIn({ nick: 'a b', password: 'secret' })
+      expect(encoded.ok).toBe(true)
+      const offline = await offlinePort.getProfile()
+      expect(offline).toEqual({ ok: false, kind: 'network' })
+      expect(phrase.network).toBe('Нет соединения')
+
+      routes.set(`${base}/v1/accounts/marina/cards/missing`, () => jsonResponse(404, { code: 'object_missing' }))
+      const ready = createAccountBoardPort(createHttpAccountBoard())
+      routes.set(`${base}/v1/accounts/marina`, emptyBoard)
+      expect((await ready.signIn({ nick: 'marina', password: 'secret' })).ok).toBe(true)
+      expect((await ready.getProfile()).ok).toBe(true)
+      const missing = await ready.deleteCard('missing')
+      expect(missing).toEqual({ ok: false, kind: 'client', code: 'object_missing' })
+      expect(phraseForCode('object_missing', 'delete-card')).toBe('Карточки уже нет')
+      expect(phraseForCode('card_invalid', 'create-card')).toBe('Карточка не сохранилась')
+      expect(phraseForCode('foreign_data')).toBe('Запрос не выполнен')
+    } finally {
+      globalThis.fetch = previous
+    }
+  })
+})
+
 test.describe('screen', () => {
   test('guest canvas has no columns and opens sign-in', async ({ page }) => {
     await page.goto('/')
@@ -760,7 +952,7 @@ test.describe('screen', () => {
   })
 })
 
-test('delivery stays inside the mock', () => {
+test('the screen calls the published API and keeps one test stand-in', () => {
   const roots = ['src/services', 'src/components', 'src/views', 'src/stores']
   const files = roots.flatMap((dir) =>
     fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -768,12 +960,28 @@ test('delivery stays inside the mock', () => {
       return entry.isDirectory() ? [] : [full]
     }),
   )
-  const services = files.filter((file) => file.startsWith('src/services/')).map((file) => fs.readFileSync(file, 'utf8')).join('\n')
-  expect(services).not.toMatch(/\bfetch\s*\(/)
-  expect(services).not.toContain('msw')
-  expect(services).not.toContain('serviceWorker')
-  expect(services).not.toContain('VITE_BOARD_TRANSPORT')
-  expect(services).not.toContain('VITE_API_BASE_URL')
+  const services = files.filter((file) => file.startsWith('src/services/'))
+  const http = fs.readFileSync('src/services/httpAccountBoard.ts', 'utf8')
+  expect(http).toMatch(/\bfetch\s*\(/)
+  expect(http).toContain('VITE_API_BASE_URL')
+  expect(http).toContain('/v1/accounts')
+  expect(http).toContain('/v1/sessions')
+  expect(http).toContain('/display-name')
+  expect(http).toContain('/password')
+  expect(http).toContain('/cards/')
+  expect(http).not.toContain('mockAccountBoard')
+  expect(http).not.toContain('/journal')
+  expect(http).not.toContain('/columns/')
+  expect(http).not.toContain('/v1/health')
+  const rest = services
+    .filter((file) => !file.endsWith('httpAccountBoard.ts'))
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n')
+  expect(rest).not.toMatch(/\bfetch\s*\(/)
+  expect(rest).not.toContain('VITE_API_BASE_URL')
+  expect(services.map((file) => fs.readFileSync(file, 'utf8')).join('\n')).not.toContain('msw')
+  expect(services.map((file) => fs.readFileSync(file, 'utf8')).join('\n')).not.toContain('serviceWorker')
+  expect(services.map((file) => fs.readFileSync(file, 'utf8')).join('\n')).not.toContain('VITE_BOARD_TRANSPORT')
   const ui = files
     .filter((file) => file.startsWith('src/components/') || file.startsWith('src/views/'))
     .map((file) => fs.readFileSync(file, 'utf8'))

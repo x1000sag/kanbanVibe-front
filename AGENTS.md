@@ -65,12 +65,13 @@ MCP — вспомогательный источник. Локальные фа
 
 - Frontend: Vue 3, Vite, TypeScript, Pinia. Приложение в корне репозитория kanbanVibe-front, не в каталоге `frontend/`.
 - Backend живёт в репозитории kanbanVibe-Back (веб-API .NET). Не создавайте backend в этом репозитории.
-- Базовый URL API: переменная `VITE_API_BASE_URL` (пример — `.env.example`).
+- Сборка закрепляет kanbanVibe-Back на git-теге `v1.0.0`: `npm ci` и `npm run build` забирают этот тег (`package.json` → `kanbanVibeBackend`, `scripts/fetch-backend-tag.mjs`). Секрет CI — `BACKEND_SSH_DEPLOY_KEY`.
+- Базовый URL API: переменная `VITE_API_BASE_URL` (пример — `.env.example`). Экран своей доски вызывает опубликованное подмножество `/v1` этого тега.
 - Установка: `npm ci`.
 - Сборка: `npm run build`.
 - Локальный запуск: `npm run dev`.
 - Просмотр сборки: `npm run preview`.
-- В `package.json` нет скриптов `lint` и `test`. Не вызывайте их, пока скрипт не появится.
+- Проверка: `npm test` (Playwright). Скрипта `lint` нет. Не вызывайте `lint`, пока он не появится.
 - CI: `.github/workflows/ci.yml` — `npm ci` и `npm run build` на Node.js 22 на каждый push и pull request. Ненулевой код любой из команд роняет job.
 - CD в этом репозитории нет: ни workflow публикации, ни GitHub Release, ни артефактов релиза. Push в `main` и тег релиза сами по себе ничего не публикуют.
 

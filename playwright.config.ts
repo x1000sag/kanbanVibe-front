@@ -28,5 +28,11 @@ export default defineConfig({
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: false,
     timeout: 120_000,
+    env: {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+      ),
+      VITE_ACCOUNT_BOARD_STANDIN: 'memory',
+    },
   },
 })

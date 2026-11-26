@@ -3,7 +3,7 @@
 **Feature**: 003-account-board-screen
 **Date**: 2026-11-25
 
-Имена полей JSON совпадают с [contracts/account-board.yaml](contracts/account-board.yaml). Это подмножество опубликованного `/v1`, а не PascalCase старого клиента и не `data/board.json`. Правила валидации, которые сервер уже навязывает, подмена повторяет. Правила только экрана помечены отдельно.
+Имена полей JSON совпадают с [contracts/account-board.yaml](contracts/account-board.yaml). Это подмножество опубликованного `/v1` тега `v1.0.0`, а не PascalCase старого клиента и не `data/board.json`. Экран читает и пишет эти поля по HTTP. Правила только экрана помечены отдельно. Поле `passwordVerifier` ниже — устройство стенда проверок, не хранилище живого сервиса.
 
 ## Учётная запись
 
