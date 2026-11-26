@@ -49,7 +49,7 @@ defineExpose({ focusSignIn })
     </div>
     <div class="top-actions">
       <button type="button" class="add" aria-label="Добавить карточку" @click="onAdd">+</button>
-      <button v-if="!signedIn" ref="signInButton" type="button" class="ghost" @click="onSignIn">Войти</button>
+      <button v-if="!signedIn" ref="signInButton" type="button" class="sign-in" @click="onSignIn">Войти</button>
       <button
         v-else
         type="button"

@@ -5,17 +5,17 @@ import type { Card } from '../types/accountBoard'
 const props = defineProps<{ card: Card }>()
 const emit = defineEmits<{ edit: [source: HTMLElement] }>()
 
-const presetBackground: Record<string, string> = {
-  'UX Design': 'oklch(0.94 0.03 45)',
-  'UI Design': 'oklch(0.94 0.03 290)',
-  Testing: 'oklch(0.94 0.03 155)',
-  'Project Management': 'oklch(0.94 0.03 70)',
+const presetClass: Record<string, string> = {
+  'UX Design': 'tag-ux',
+  'UI Design': 'tag-ui',
+  Testing: 'tag-test',
+  'Project Management': 'tag-pm',
 }
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 const tag = computed(() => props.card.tags[0] ?? '')
-const tagBackground = computed(() => presetBackground[tag.value] ?? 'oklch(0.97 0.012 80)')
+const tagClass = computed(() => presetClass[tag.value] ?? 'tag-custom')
 const when = computed(() => formatDeadline(props.card.deadline))
 
 function formatDeadline(value: string | null): string {
@@ -36,7 +36,7 @@ function onEdit(event: Event): void {
 
 <template>
   <article class="card">
-    <p v-if="tag" class="card-tag" :style="{ background: tagBackground }">{{ tag }}</p>
+    <p v-if="tag" class="card-tag" :class="tagClass">{{ tag }}</p>
     <h3 class="card-title">{{ card.title }}</h3>
     <p v-if="card.description" class="card-description">{{ card.description }}</p>
     <div class="card-foot">
