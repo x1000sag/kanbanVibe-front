@@ -26,3 +26,14 @@ dist-ssr
 dist/
 .vite/
 .specify/local/
+
+# Build output and local env
+build/
+.env*
+Thumbs.db
+*.tmp
+
+# Playwright output. Snapshots next to the spec stay tracked.
+test-results/
+playwright-report/
+blob-report/
